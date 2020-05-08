@@ -78,7 +78,7 @@ GPIO.setmode(GPIO.BCM)
 
 leds = [18,27,4,17]
 closeSwitches(leds)
-dist = distance_meter(22,23)
+dist = distance_meter(16,12)
 #TLLDs
 one_time_capture = 1
 measure_interval = 20000000

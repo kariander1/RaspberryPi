@@ -7,6 +7,7 @@ from gpiozero import RGBLED
 from gpiozero import PWMLED
 from gpiozero import Button
 from gpiozero import Servo
+from gpiozero import DistanceSensor
 import gpio
 import time
 import sys
@@ -122,6 +123,17 @@ def init_motion_detector(listen_gpio,gnd_pin=-1,vcc_pin=-1,motion_detector_name=
     devices_mapping[vcc_pin] = motion_detector_name+" VCC"
     return motion_detector
 
+def init_distance_sensor(echo_gpio,trigger_gpio,gnd_pin=-1,vcc_pin=-1,sensor_name="Distance Sensor"):
+    pins_in_use.append(echo_gpio)
+    pins_in_use.append(trigger_gpio)
+    distance_sensor = DistanceMeter(echo_gpio,trigger_gpio)
+    devices.append(distance_sensor)
+    devices_mapping[get_key("GPIO "+str(echo_gpio),__gpio_mapping)] =sensor_name+" ECHO"
+    devices_mapping[get_key("GPIO "+str(trigger_gpio),__gpio_mapping)] =sensor_name+" TRIG"
+    devices_mapping[gnd_pin] = sensor_name+" GND"
+    devices_mapping[vcc_pin] = sensor_name+" VCC"
+    return distance_sensor
+
 def init_led(out_gpio,led_name="LED"):
     pins_in_use.append(out_gpio)
     led = LED(out_gpio)
@@ -144,9 +156,17 @@ def init_buzzer(out_gpio,gnd_pin,buzzer_name="Buzzer"):
     devices_mapping[get_key("GPIO "+str(out_gpio),__gpio_mapping)] = buzzer_name
     devices_mapping[gnd_pin] =buzzer_name+" GND"
     return buzzer
-def init_servo(out_gpio,gnd_pin=-1,vcc_pin=-1,servo_name="Servo"):
+def init_servo_gpiozero(out_gpio,gnd_pin=-1,vcc_pin=-1,servo_name="Servo gpio zero"):
     pins_in_use.append(out_gpio)
     servo = Servo(out_gpio)
+    devices.append(servo)
+    devices_mapping[get_key("GPIO "+str(out_gpio),__gpio_mapping)] =servo_name
+    devices_mapping[gnd_pin] = servo_name+" GND"
+    devices_mapping[vcc_pin] = servo_name+" VCC"
+    return servo
+def init_servo(out_gpio,gnd_pin=-1,vcc_pin=-1,servo_name="Servo"):
+    pins_in_use.append(out_gpio)
+    servo = MicroServer(out_gpio)
     devices.append(servo)
     devices_mapping[get_key("GPIO "+str(out_gpio),__gpio_mapping)] =servo_name
     devices_mapping[gnd_pin] = servo_name+" GND"
@@ -183,12 +203,87 @@ def get_key(val,dict):
              return key 
   
     return "key doesn't exist"
+class DistanceMeter:
+    __sonic_speed = 34300 #cm/s
+    __echo_timeout =1 #sec
+    __max_measure_retry=3
+    __trigger_pin=None
+    __echo_pin=None
+    def __init__(self,echo_pin , trigger_pin):
+        print("Initializing Distance Sensor")
+        self.__trigger_pin = trigger_pin
+        self.__echo_pin = echo_pin
+         
+        GPIO.setup(self.__trigger_pin, GPIO.OUT)
+        GPIO.setup(self.__echo_pin, GPIO.IN)
+        GPIO.output(self.__trigger_pin, GPIO.LOW)
+        time.sleep(2)
+        print("Initializing Distance Sensor - Done")
+        
+    def take_measurements(self,duration,measure_timeout=None):
+        if(measure_timeout == None):
+            measure_TO = duration
+        else:
+            measure_TO = measure_timeout
+        distance = self.take_measurement(measure_TO)
+        if(distance is None):
+            return None
+        measure_start = time.time()
+        num_of_measurements = 1
+        measure_duration = 0
+        while measure_duration<=duration :
+            current_measurement = self.take_measurement(measure_TO)
+            if(current_measurement is None):
+                return None
+            distance = (distance *num_of_measurements +current_measurement )/(num_of_measurements+1)
+            num_of_measurements+=1
+            measure_duration = time.time() - measure_start
+        return distance
 
+    def take_measurement(self,timeout=None):
+        if(timeout is None):
+            timeout = self.__echo_timeout/self.__max_measure_retry
+        else:
+            timeout/=self.__max_measure_retry
+        
+        repeat =True
+        retries=0
+        
+        while(repeat is True and retries < self.__max_measure_retry ):
+            repeat=False
+            GPIO.output(self.__trigger_pin, GPIO.HIGH)
+            time.sleep(0.00001)
+            GPIO.output(self.__trigger_pin, GPIO.LOW)
 
-class LightMeasure:
-     def __init__(self, duration, turned_on=True):
-        self.duration = duration
-        self.turned_on=turned_on
+            pulse_start_time = 0
+            pulse_end_time = 0
+
+        
+            wait_pulse = time.time()
+            while GPIO.input(self.__echo_pin)==0 and not repeat:
+                pulse_start_time = time.time()
+                if((time.time() - wait_pulse) >=timeout):
+                    print("TO echo 0")
+                    repeat=True
+            while GPIO.input(self.__echo_pin)==1 and not repeat:
+                pulse_end_time = time.time()
+                if((time.time() - wait_pulse) >=timeout):
+                    print("TO echo 1")
+                    repeat=True
+            if(pulse_start_time ==0 or pulse_end_time == 0): #Invalid measurement
+                repeat=True
+            
+            if(repeat == True):
+                retries+=1
+        
+        if(retries == self.__max_measure_retry):
+            return None
+        pulse_duration = pulse_end_time - pulse_start_time
+
+        distance = round((pulse_duration * self.__sonic_speed)/2, 2)
+     #   print(distance)
+        return distance
+
 class LightDetector:
     __detectedLight=False
     __light_detect_interval = 100 #ms
@@ -214,7 +309,7 @@ class LightDetector:
         self.__listen_monitor.set_rate(interval)
     def start_listening(self):
         if not self.__listening:            
-            self.__listen_monitor.start()
+            self.__listen_monitor.run()
             self.__listening = True
             
     def add_trigger_pin(self,pin_number):
@@ -249,7 +344,7 @@ class LightDetector:
         self.__listen_monitor.join()
 class MusicBuzzer:
 
-    
+    #Frequencies
     c = [32, 65, 131, 262, 523]
     db= [34, 69, 139, 277, 554]
     d = [36, 73, 147, 294, 587]
@@ -307,7 +402,7 @@ class SoundDetector:
     def add_trigger_pin(self,pin_number):
         self.output_switches.append(pin_number)
     def start_listening(self):
-        Monitor(self.name +" Sound Monitor",self.sound_change,self.sound_detect_interval).start()
+        Monitor(self.name +" Sound Monitor",self.sound_change,self.sound_detect_interval).run()
     def sound_change(self):
         input_result =GPIO.input(self.input_switch)
         #log_message(input_result)
@@ -336,7 +431,7 @@ class MotionDetector:
 
     def start_listening(self):
         if not self.__listening:            
-            self.__listen_monitor.start()
+            self.__listen_monitor.run()
             self.__listening = True
             
     def add_trigger_pin(self,pin_number):
@@ -516,6 +611,50 @@ class Potentimeter:
             return deviation
         else:
             return 1
-        
+class MicroServer:
+    __control_gpio=None
+    
+    __duty_cycle_for_stopping = 0
+    __duty_cycle_min = 2
+    __duty_cycle_max = 12
+    
+    __min_angle = 0
+    __max_angle = 180
+    __angle_range = __max_angle-__min_angle
+    __current_angle = None
+    __full_angle_sweep_time = 0.6 #Seconds
+    __angular_speed = __full_angle_sweep_time/__angle_range #Degrees per sec
+    
+    __PWM_frequency = 50 #Hertz
+    __PWM_control=None
+    
+    #duty_cycle_mid = (duty_cycle_end  -duty_cycle_start )/2
+    
+    time_delay=0.04
+
+    def __init__(self, control_gpio):
+        self.__control_gpio = control_gpio
+        GPIO.setup(control_gpio, GPIO.OUT)
+        self.__PWM_control = GPIO.PWM(control_gpio, self.__PWM_frequency) # GPIO 17 for PWM with 50Hz
+        self.__PWM_control.start(self.__duty_cycle_for_stopping) # Initialization
+    def set_mid(self):
+        self.set_angle((self.__min_angle+self.__max_angle)/2)
+    def set_angle(self,angle):
+        if(self.__current_angle is None):
+            time_to_angle = self.__full_angle_sweep_time
+        else:
+            time_to_angle = abs(self.__current_angle- angle)*self.__angular_speed
+        angle_ratio = angle/self.__angle_range
+        angle_addition_to_duty_cycle = angle_ratio*(self.__duty_cycle_max - self.__duty_cycle_min)
+        new_duty_cycle =  self.__duty_cycle_min+angle_addition_to_duty_cycle
+        self.__PWM_control.ChangeDutyCycle(new_duty_cycle)
+        time.sleep(time_to_angle)
+        self.__current_angle = angle
+        self.stop_servo()
+    def stop_servo(self):
+        self.__PWM_control.ChangeDutyCycle(self.__duty_cycle_for_stopping)
+    def get_angle(self):
+        return self.__current_angle
+
         
 __init_board()
