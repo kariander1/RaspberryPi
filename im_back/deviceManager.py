@@ -141,6 +141,14 @@ def init_led(out_gpio,led_name="LED"):
     devices_mapping[get_key("GPIO "+str(out_gpio),__gpio_mapping)] = led_name
     return led
 
+def init_PWMled(out_gpio,gnd_pin=-1,led_name="PWM LED"):
+    pins_in_use.append(out_gpio)
+    led = PWMLED(out_gpio)
+    devices.append(led)
+    devices_mapping[get_key("GPIO "+str(out_gpio),__gpio_mapping)] = led_name
+    devices_mapping[gnd_pin] = led_name+" GND"
+    return led
+
 def init_button(in_gpio,gnd_pin,button_name="Button"):
     pins_in_use.append(in_gpio)
     button = Button(in_gpio)
@@ -225,12 +233,11 @@ class DistanceMeter:
             measure_TO = duration
         else:
             measure_TO = measure_timeout
-        distance = self.take_measurement(measure_TO)
-        if(distance is None):
-            return None
-        measure_start = time.time()
-        num_of_measurements = 1
+        distance = 0
+        
+        num_of_measurements =0
         measure_duration = 0
+        measure_start = time.time()
         while measure_duration<=duration :
             current_measurement = self.take_measurement(measure_TO)
             if(current_measurement is None):
@@ -238,6 +245,8 @@ class DistanceMeter:
             distance = (distance *num_of_measurements +current_measurement )/(num_of_measurements+1)
             num_of_measurements+=1
             measure_duration = time.time() - measure_start
+        if(distance==0):
+            return None
         return distance
 
     def take_measurement(self,timeout=None):
@@ -263,12 +272,12 @@ class DistanceMeter:
             while GPIO.input(self.__echo_pin)==0 and not repeat:
                 pulse_start_time = time.time()
                 if((time.time() - wait_pulse) >=timeout):
-                    print("TO echo 0")
+                    #print("TO echo 0")
                     repeat=True
             while GPIO.input(self.__echo_pin)==1 and not repeat:
                 pulse_end_time = time.time()
                 if((time.time() - wait_pulse) >=timeout):
-                    print("TO echo 1")
+                    #print("TO echo 1")
                     repeat=True
             if(pulse_start_time ==0 or pulse_end_time == 0): #Invalid measurement
                 repeat=True
@@ -622,7 +631,7 @@ class MicroServer:
     __max_angle = 180
     __angle_range = __max_angle-__min_angle
     __current_angle = None
-    __full_angle_sweep_time = 0.6 #Seconds
+    __full_angle_sweep_time = 0.5 #0.6 #Seconds
     __angular_speed = __full_angle_sweep_time/__angle_range #Degrees per sec
     
     __PWM_frequency = 50 #Hertz
