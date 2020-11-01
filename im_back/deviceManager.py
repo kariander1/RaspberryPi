@@ -8,6 +8,7 @@ from gpiozero import PWMLED
 from gpiozero import Button
 from gpiozero import Servo
 from gpiozero import DistanceSensor
+from gpiozero import OutputDevice as Stepper
 import gpio
 import time
 import sys
@@ -172,6 +173,20 @@ def init_servo_gpiozero(out_gpio,gnd_pin=-1,vcc_pin=-1,servo_name="Servo gpio ze
     devices_mapping[gnd_pin] = servo_name+" GND"
     devices_mapping[vcc_pin] = servo_name+" VCC"
     return servo
+def init_stepper_motor(out1,out2,out3,out4,vcc_pin=-1,gnd_pin=-1,stepper_name ="Stepper"):
+    pins_in_use.append(out1)
+    pins_in_use.append(out2)
+    pins_in_use.append(out3)
+    pins_in_use.append(out4)
+    motor = StepMotor(out1,out2,out3,out4)
+    devices.append(motor)
+    devices_mapping[get_key("GPIO "+str(out1),__gpio_mapping)] =stepper_name
+    devices_mapping[get_key("GPIO "+str(out2),__gpio_mapping)] =stepper_name
+    devices_mapping[get_key("GPIO "+str(out3),__gpio_mapping)] =stepper_name
+    devices_mapping[get_key("GPIO "+str(out4),__gpio_mapping)] =stepper_name
+    devices_mapping[gnd_pin] = stepper_name+" GND"
+    devices_mapping[vcc_pin] = stepper_name+" VCC"
+    return motor
 def init_servo(out_gpio,gnd_pin=-1,vcc_pin=-1,servo_name="Servo"):
     pins_in_use.append(out_gpio)
     servo = MicroServer(out_gpio)
@@ -292,7 +307,73 @@ class DistanceMeter:
         distance = round((pulse_duration * self.__sonic_speed)/2, 2)
      #   print(distance)
         return distance
-
+class StepMotor:
+    __step_pins=[]
+    __step_speed = 2 #1 or 2
+    __steps_for_revolution = 4096/__step_speed
+    
+    __steps_angle_ratio = __steps_for_revolution/360
+    __seq = [[1,0,0,1], # Define step sequence as shown in manufacturers datasheet
+             [1,0,0,0], 
+             [1,1,0,0],
+             [0,1,0,0],
+             [0,1,1,0],
+             [0,0,1,0],
+             [0,0,1,1],
+             [0,0,0,1]]
+    __wait_time = 0.004
+    def __init__(self,out1,out2,out3,out4):
+        IN1 = Stepper(out1)
+        IN2 = Stepper(out2)
+        IN3 = Stepper(out3)
+        IN4 = Stepper(out4)
+        self.__step_pins = [IN1,IN2,IN3,IN4] # Motor GPIO pins</p><p>
+    def rotate_steps(self,steps,antiCW=True):
+        stepDir = self.__step_speed
+        if(not antiCW):
+            stepDir *= -1
+        stepCount = len(self.__seq)
+        step_counts=0
+        stepCounter = 0
+        steps_to_move=steps
+        while step_counts<steps_to_move:            # Start main loop
+            for pin in range(0,len(self.__step_pins)):
+                xPin=self.__step_pins[pin]          # Get GPIO
+                if self.__seq[stepCounter][pin]!=0:
+                    xPin.on()
+                else:
+                    xPin.off()
+            stepCounter += stepDir
+            if (stepCounter >= stepCount):
+                stepCounter = 0
+            if (stepCounter < 0):
+                stepCounter = stepCount+stepDir
+            step_counts+=1
+            print(step_counts)
+            time.sleep(self.__wait_time)     # Wait before moving on
+    def rotate(self,degrees,antiCW=True):
+        stepDir = self.__step_speed
+        if(not antiCW):
+            stepDir *= -1
+        stepCount = len(self.__seq)
+        step_counts=0
+        stepCounter = 0
+        steps_to_move=degrees*self.__steps_angle_ratio
+        while step_counts<steps_to_move:            # Start main loop
+            for pin in range(0,len(self.__step_pins)):
+                xPin=self.__step_pins[pin]          # Get GPIO
+                if self.__seq[stepCounter][pin]!=0:
+                    xPin.on()
+                else:
+                    xPin.off()
+            stepCounter += stepDir
+            if (stepCounter >= stepCount):
+                stepCounter = 0
+            if (stepCounter < 0):
+                stepCounter = stepCount+stepDir
+            step_counts+=1
+            print(step_counts)
+            time.sleep(self.__wait_time)     # Wait before moving on
 class LightDetector:
     __detectedLight=False
     __light_detect_interval = 100 #ms
